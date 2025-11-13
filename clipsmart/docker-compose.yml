@@ -1,0 +1,256 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: clipsmart-postgres
+    environment:
+      POSTGRES_DB: clipsmart
+      POSTGRES_USER: clipsmart_user
+      POSTGRES_PASSWORD: clipsmart_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - clipsmart-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clipsmart_user -d clipsmart"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Celery and Caching
+  redis:
+    image: redis:7-alpine
+    container_name: clipsmart-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - clipsmart-network
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ClipSmart Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: clipsmart-backend
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://clipsmart_user:clipsmart_password@postgres:5432/clipsmart
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/tmp/clipsmart/uploads
+      - backend_exports:/tmp/clipsmart/exports
+      - /app/venv
+    ports:
+      - "8000:8000"
+    networks:
+      - clipsmart-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: clipsmart-celery-worker
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://clipsmart_user:clipsmart_password@postgres:5432/clipsmart
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/tmp/clipsmart/uploads
+      - backend_exports:/tmp/clipsmart/exports
+      - /app/venv
+    networks:
+      - clipsmart-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app worker --loglevel=debug --concurrency=2
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: clipsmart-celery-beat
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://clipsmart_user:clipsmart_password@postgres:5432/clipsmart
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/tmp/clipsmart/uploads
+      - backend_exports:/tmp/clipsmart/exports
+      - /app/venv
+    networks:
+      - clipsmart-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app beat --loglevel=debug
+
+  # ClipSmart Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: clipsmart-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    networks:
+      - clipsmart-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+    command: npm run dev
+
+  # Minio S3-compatible storage (for local development)
+  minio:
+    image: minio/minio:latest
+    container_name: clipsmart-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - clipsmart-network
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Prometheus (for monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: clipsmart-prometheus
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - clipsmart-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+
+  # Grafana (for metrics visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: clipsmart-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3001:3000"
+    networks:
+      - clipsmart-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # pgAdmin (for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: clipsmart-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@clipsmart.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - clipsmart-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_exports:
+    driver: local
+
+networks:
+  clipsmart-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

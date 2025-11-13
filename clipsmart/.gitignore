@@ -1,0 +1,160 @@
+# ClipSmart - AI-Powered Multi-Modal Content Platform
+# .gitignore
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.env
+.env.production
+config/secrets.yml
+secrets/
+
+# API Keys and credentials
+**/api-keys.json
+**/credentials.json
+**/*-key.json
+**/*.pem
+**/*.key
+**/*.cert
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+env/
+ENV/
+.venv
+
+# Node.js / JavaScript
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+.next/
+out/
+.nuxt/
+dist/
+.cache/
+.parcel-cache/
+
+# AI Model Files (too large for git)
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+*.h5
+*.pb
+models/
+weights/
+checkpoints/
+pretrained/
+
+# Media processing cache
+media-cache/
+temp-uploads/
+processed/
+thumbnails/
+.temp/
+tmp/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+postgres-data/
+redis-data/
+mongodb-data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+.coverage
+.pytest_cache/
+.hypothesis/
+htmlcov/
+.tox/
+.nox/
+coverage/
+*.cover
+*.py,cover
+.cache
+
+# IDEs
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Build outputs
+build/
+dist/
+*.bundle.js
+*.bundle.js.map
+
+# System files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# User uploaded content (if not using external storage)
+uploads/
+user-content/
+generated-content/
+
+# Analytics and tracking data
+analytics/
+metrics/
+*.analytics.json
+
+# CI/CD
+.gitlab-ci-local/
